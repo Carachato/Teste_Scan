@@ -18,7 +18,7 @@ def verificar_books_em_pgms(books, pgms, pasta_src, arquivo_saida, extensao=".cb
             nome_arquivo = pgm + extensao  # concatena extensão apenas para busca
             caminho_modulo = os.path.join(pasta_src, nome_arquivo)
             if not os.path.exists(caminho_modulo):
-                print(f"Módulo não encontrado: {nome_arquivo}")
+                #print(f"Módulo não encontrado: {nome_arquivo}")
                 continue
             with open(caminho_modulo, "r", encoding="utf-8", errors="ignore") as f:
                 conteudo = f.read()
@@ -28,7 +28,8 @@ def verificar_books_em_pgms(books, pgms, pasta_src, arquivo_saida, extensao=".cb
                         resultados.append(f"{book} - {pgm}")
                     encontrado = True
         if not encontrado:
-            resultados.append(f"{book} - Nenhuma referência encontrada")
+            #resultados.append(f"{book} - Nenhuma referência encontrada")
+            print(f"{book} - Nenhuma referência encontrada")
     
     # Grava resultados em arquivo de saída TXT
     with open(arquivo_saida, "w", encoding="utf-8") as f:
@@ -44,9 +45,9 @@ def gerar_excel(arquivo_txt, arquivo_excel):
         for linha in f:
             partes = linha.strip().split(" - ")
             if len(partes) == 2:
-                dados.append({"Book": partes[0], "Programa": partes[1]})
+                dados.append({"Programa": partes[1], "Book": partes[0]})
     
-    df = pd.DataFrame(dados, columns=["Book", "Programa"])
+    df = pd.DataFrame(dados, columns=["Programa", "Book"])
     df.to_excel(arquivo_excel, index=False)
 
 def main():
@@ -55,7 +56,7 @@ def main():
     raiz_listas = os.path.join(os.getcwd(), "Listas")
     raiz_modulos = os.path.join(os.getcwd(), "Modulos")
     extensao = ".cbl"
-    arquivo_books = os.path.join(raiz_listas, "Lista_Books.txt")
+    arquivo_books = os.path.join(raiz_listas, "Lista_Pgms.txt")
     arquivo_pgms = os.path.join(raiz_listas, "Lista_Pgms.txt")
     pasta_src = os.path.join(raiz_modulos, "SRC")
     arquivo_saida_txt = os.path.join(os.getcwd(), "Resultado_Busca2.txt")
