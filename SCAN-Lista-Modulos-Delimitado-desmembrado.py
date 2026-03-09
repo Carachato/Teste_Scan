@@ -1,5 +1,7 @@
 import os
+import sys
 import pandas as pd
+import time
 
 def ler_lista(arquivo):
     """Lê um arquivo .txt contendo uma lista no formato Python e retorna como lista."""
@@ -33,6 +35,8 @@ def verificar_books_em_pgms(books, pgms, pasta_src, arquivo_saida, extensao=".cb
         for linha in resultados:
             f.write(linha + "\n")
 
+    return resultados
+
 def gerar_excel(arquivo_txt, arquivo_excel):
     """Lê o arquivo TXT e gera um Excel com colunas Book e Programa."""
     dados = []
@@ -46,6 +50,8 @@ def gerar_excel(arquivo_txt, arquivo_excel):
     df.to_excel(arquivo_excel, index=False)
 
 def main():
+    inicio = time.time()
+
     raiz_listas = os.path.join(os.getcwd(), "Listas")
     raiz_modulos = os.path.join(os.getcwd(), "Modulos")
     extensao = ".cbl"
@@ -58,9 +64,20 @@ def main():
     books = ler_lista(arquivo_books)
     pgms = ler_lista(arquivo_pgms)
 
-    verificar_books_em_pgms(books, pgms, pasta_src, arquivo_saida_txt, extensao)
+    resultados = verificar_books_em_pgms(books, pgms, pasta_src, arquivo_saida_txt, extensao)
     gerar_excel(arquivo_saida_txt, arquivo_saida_excel)
 
+    fim = time.time()
+    tempo_decorrido = fim - inicio
+
+    # Estatísticas
+    print("\n=== Estatísticas da execução ===")
+    print(f"Quantidade de Books: {len(books)}")
+    print(f"Quantidade de Programas: {len(pgms)}")
+    print(f"Linhas gravadas em Resultado_Busca.txt: {len(resultados)}")
+    print(f"Tempo início: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(inicio))}")
+    print(f"Tempo final: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(fim))}")
+    print(f"Tempo decorrido: {tempo_decorrido:.2f} segundos")
     print("Processo concluído. Verifique os arquivos Resultado_Busca2.txt e Resultado_Busca2.xlsx.")
 
 if __name__ == "__main__":
