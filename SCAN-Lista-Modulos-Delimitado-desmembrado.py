@@ -48,7 +48,7 @@ def gerar_excel(arquivo_txt, arquivo_excel):
 def main():
     raiz_listas = os.path.join(os.getcwd(), "Listas")
     raiz_modulos = os.path.join(os.getcwd(), "Modulos")
-
+    extensao = ".cbl"
     arquivo_books = os.path.join(raiz_listas, "Lista_Books.txt")
     arquivo_pgms = os.path.join(raiz_listas, "Lista_Pgms.txt")
     pasta_src = os.path.join(raiz_modulos, "SRC")
@@ -58,7 +58,7 @@ def main():
     books = ler_lista(arquivo_books)
     pgms = ler_lista(arquivo_pgms)
 
-    verificar_books_em_pgms(books, pgms, pasta_src, arquivo_saida_txt, extensao=".cbl")
+    verificar_books_em_pgms(books, pgms, pasta_src, arquivo_saida_txt, extensao)
     gerar_excel(arquivo_saida_txt, arquivo_saida_excel)
 
     print("Processo concluído. Verifique os arquivos Resultado_Busca2.txt e Resultado_Busca2.xlsx.")
