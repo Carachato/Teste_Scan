@@ -1,0 +1,26 @@
+Private Sub Worksheet_BeforeDoubleClick(ByVal Target As Range, Cancel As Boolean)
+    Dim CaminhoExe As String
+    Dim CaminhoArqCPY As String
+    Dim CaminhoArqSRC As String
+    Dim CaminhoArqJCL As String
+    
+    ' Caminho do executável do Notepad++
+    CaminhoExe = "C:\Program Files\Notepad++\notepad++.exe"
+    CaminhoArqCPY = "C:\Users\NoteSam\Desktop\CPY\" & Range("A" & Target.Row).Value & ".cpy"
+    CaminhoArqSRC = "C:\Users\NoteSam\Desktop\SRC\" & Range("B" & Target.Row).Value & ".data"
+    CaminhoArqJCL = "C:\Users\NoteSam\Desktop\JCL\" & Range("E" & Target.Row).Value & ".jcl"
+    
+    ' Verifica se o clique foi na coluna B (a partir da linha 2)
+    If Target.Column = 1 And Target.Row >= 2 Then
+        Shell """" & CaminhoExe & """ """ & CaminhoArqCPY & """", vbNormalFocus
+    
+    Else
+        If Target.Column = 2 And Target.Row >= 2 Then
+           Shell """" & CaminhoExe & """ """ & CaminhoArqSRC & """", vbNormalFocus
+        Else
+           If Target.Column = 5 And Target.Row >= 2 Then
+              Shell """" & CaminhoExe & """ """ & CaminhoArqJCL & """", vbNormalFocus
+           End If
+        End If
+    End If
+End Sub
