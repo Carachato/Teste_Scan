@@ -90,7 +90,7 @@ for pasta in pastas:
 
 # Aba review
 ws_review = wb.create_sheet(title="review")
-ws_review.append(["Módulo", "Campo Encontrado", "Tipo Campo", "Notificação", "Origem"])
+ws_review.append(["Módulo", "Campo Encontrado", "Tipo Campo", "Notificação", "Origem", "Origem do dado"])
 for cell in ws_review[1]:
     cell.font = header_font; cell.fill = header_fill
 
@@ -99,7 +99,7 @@ for row in ws_src.iter_rows(min_row=2, values_only=True):
     modulo_src, campo_src, tipo_src, existe_src, origem_src = row[1], row[2], row[3], row[4], row[5]
     if origem_src == "Variável":
         if "PIC 9" in tipo_src or "PIC S9" in tipo_src:
-            ws_review.append([modulo_src, campo_src, tipo_src, "ponto de atenção para o uso da variavél", origem_src])
+            ws_review.append([modulo_src, campo_src, tipo_src, "ponto de atenção para o uso da variavél", origem_src, tipo_src])
     elif origem_src == "Diretiva":
         ref_copy = tipo_src.strip()
         for aba in ["CPY", "CDD", "CP2"]:
@@ -108,7 +108,7 @@ for row in ws_src.iter_rows(min_row=2, values_only=True):
                 modulo_chk, campo_chk, tipo_chk, existe_chk, origem_chk = row_check[1], row_check[2], row_check[3], row_check[4], row_check[5]
                 if modulo_chk.strip() == ref_copy:
                     if existe_chk == "X":
-                        ws_review.append([modulo_src, campo_chk, tipo_chk, "ponto de atenção para o uso da variavél", origem_src])
+                        ws_review.append([modulo_src, campo_chk, tipo_chk, "ponto de atenção para o uso da variavél", origem_src, tipo_src])
 
 # Aba Resumo
 ws_resumo = wb.create_sheet(title="Resumo")
