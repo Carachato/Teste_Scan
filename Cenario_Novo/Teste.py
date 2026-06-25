@@ -51,7 +51,7 @@ for pasta in pastas:
                         for linha in f:
                             linha_upper = linha.upper()
                             if len(linha_upper) >= 7 and linha_upper[6] == "*": continue
-                            if len(linha_upper) >= 72 and linha_upper[71] == "*": continue
+                            #if len(linha_upper) >= 72 and linha_upper[71] == "*": continue
                             if "SQLCA" in linha_upper or "SC5LDIS1" in linha_upper or "SC5LDIS2" in linha_upper: continue
                             linha_cortada = linha_upper[7:73].strip()
                             if pasta == "SRC":
