@@ -1,0 +1,55 @@
+teste.js
+
+function gravarArquivoTxt(NmServidor, HrJs, PaginaJs, TrasacaoJs, TrancodeJs) {
+    try {
+        var fso = Server.CreateObject("Scripting.FileSystemObject");
+        var Caminho = "C:\\inetpub\\wwwroot\\_ProjetoIIS\\Rastreamento\\"
+		var Extencao = ".txt"
+        var caminhoCompleto = Caminho + NmServidor + " - " + HrJs + " - " + PaginaJs + " - " + TrasacaoJs + "." + Extencao;
+        var file = fso.CreateTextFile(caminhoCompleto, true);
+        file.WriteLine(TrancodeJs);
+        file.Close();        
+        return true;
+    } catch(e) {
+        Response.Write("Erro interno no script JS: " + Caminho + e.description);
+        return false;
+    }
+}
+
+teste.asp
+<%@ Language="VBScript" CodePage="65001" %>
+<script language="JavaScript" runat="server" src="./txt/txtjs.js"></script>
+
+<%
+'conceder acesso na pasta para IUSR e IIS_IUSRS
+Dim nomeServidor, caminhoVirtual, nomePaginaAtual
+nomeServidor = Request.ServerVariables ("SERVER_NAME")
+caminhoVirtual = Request.ServerVariables("SCRIPT_NAME")
+nomePaginaAtual = Mid(caminhoVirtual, InStrRev(caminhoVirtual, "/") + 1)
+'Response.Write"<script>alert('" & "nomeServidor => " & nomeServidor & "');</script>"
+'Response.Write"<script>alert('" & "caminhoVirtual => " & caminhoVirtual & "');</script>"
+'Response.Write"<script>alert('" & "nomePaginaAtual => " & nomePaginaAtual & "');</script>"
+'Response.Write"<script>alert('" & "pastaDestino => " & pastaDestino & "');</script>"
+%>
+
+<%
+Dim resultado, horaServidor, horaServidor2, aspPagina, aspTransacao, aspTrancode
+horaServidor = Right("0" & Hour(Time), 2) & Right("0" & Minute(Time), 2) & Right("0" & Second(Time), 2)
+horaServidor2 = horaServidor
+aspPagina    = nomePaginaAtual
+aspTransacao = Trim("XXXX    ")
+aspTrancode  = "XXXX trancode 123"
+Do While horaServidor = horaServidor2
+   horaServidor = mid(time,1,2) & mid(time,4,2)& mid(time,7,2)
+Loop
+resultado = gravarArquivoTxt(nomeServidor, horaServidor, aspPagina, aspTransacao, aspTrancode)  
+%>
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Processamento ASP/JS</title>
+</head>
+<body>
+</body>
+</html>
