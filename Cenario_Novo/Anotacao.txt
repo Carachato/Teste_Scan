@@ -53,3 +53,71 @@ resultado = gravarArquivoTxt(nomeServidor, horaServidor, aspPagina, aspTransacao
 <body>
 </body>
 </html>
+
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+<%
+Dim Tempo1,Tempo2, Arq, Pagina, Retorno, Caminho, NomeArquivo, ObjetoFSO, ObjetoArquivo
+
+Tempo1 = mid(time,1,2) & mid(time,4,2)& mid(time,7,2)
+'Tempo1 = Right("0" & Hour(Now), 2) & Right("0" & Minute(Now), 2) & Right("0" & Second(Now), 2)
+
+Arq = Trim("XXXX")
+Pagina = "index2.asp"
+Retorno = "teste 123 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+
+Do While Tempo1 = Tempo2
+	Tempo1 = mid(time,1,2) & mid(time,4,2)& mid(time,7,2)
+Loop
+	
+' Nome do arquivo final
+NomeArquivo = Arq & "_" & Pagina & "_" & Tempo1 & ".txt"
+
+'Caminho = Server.MapPath("\_TesteLocal\") & "\" & NomeArquivo
+Caminho = "C:\\_TesteLocal\\" & NomeArquivo
+Response.Write"<script>alert('" & Caminho & "');</script>"
+
+Set ObjetoFSO = Server.CreateObject("Scripting.FileSystemObject")
+Set ObjetoArquivo = ObjetoFSO.CreateTextFile(Caminho, True)
+
+ObjetoArquivo.WriteLine Retorno
+ObjetoArquivo.Close
+
+Set ObjetoArquivo = Nothing
+Set ObjetoFSO = Nothing
+
+Response.Write "<script>alert('Fim e arquivo gravado!');</script>"
+%>
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+<%
+'TESTE
+	Dim Tempo1,Tempo2
+	Tempo = mid(time,1,2) & mid(time,4,2)& mid(time,7,2)
+	Response.Write"<script>alert('" & Tempo & "');</script>"
+    Tempo1 = mid(time,1,2) & mid(time,4,2)& mid(time,7,2)
+    Tempo2 =  Tempo1
+	Response.Write"<script>alert('Efetuando loop para nao grava no mesmo segundo');</script>"
+	Do While Tempo1 = Tempo2
+		Tempo1 = mid(time,1,2) & mid(time,4,2)& mid(time,7,2)
+	Loop
+    Dim arquivo,Pagina,Retorno
+    arquivo = "XXXX    "
+	arquivo = Trim(arquivo)
+	Pagina = "index2.asp"
+    Retorno  = "XXXX teste 123"
+%>		
+    <script language="javascript">
+        var fso = Server.CreateObject("Scripting.FileSystemObject");
+        var Caminho = "C://_TesteLocal//";
+        var Arq = ('<%=arquivo%>');
+        var Pag = ('<%=Pagina%>');
+		var Hor = ('<%=Tempo1%>');
+        var Ext = ".txt";
+        var file = fso.CreateTextFile(Caminho + Arq + "_" + Pag + "_" + Hor + Ext, true);
+        file.writeline('<%=Retorno%>');
+        file.Close();
+    </script>
+<%
+Response.Write"<script>alert('Fim');</script>"
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
