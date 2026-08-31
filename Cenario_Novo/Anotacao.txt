@@ -121,3 +121,63 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 Response.Write"<script>alert('Fim');</script>"
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+
+
+/* REXX - Copia listings do ChangeMan para um PDS de destino */
+TRACE O
+
+/* 1. Defina aqui as variáveis do seu ambiente */
+pkg_id   = "NOME000001"                  /* Número do pacote ChangeMan */
+lst_pds  = "SEUPREF.CMNSTAGE."pkg_id".LST" /* Dataset de Staging (LST)  */
+dest_pds = "SEUPREF.RELAX.LISTINGS"      /* Seu PDS de destino        */
+
+SAY "Iniciando cópia dos listings do pacote " pkg_id "..."
+
+/* 2. Inicializa o ambiente de serviços de biblioteca do ISPF (LMINIT) */
+ADDRESS ISPEXEC "LMINIT DATAID(LSTID) DATASET('"lst_pds"') ENQ(SHR)"
+IF RC <> 0 THEN DO
+   SAY "Erro ao inicializar o PDS de Staging: " lst_pds
+   EXIT 8
+END
+
+ADDRESS ISPEXEC "LMINIT DATAID(DESTID) DATASET('"dest_pds"') ENQ(SHR)"
+IF RC <> 0 THEN DO
+   SAY "Erro ao inicializar o PDS de Destino: " dest_pds
+   ADDRESS ISPEXEC "LMFREE DATAID(LSTID)"
+   EXIT 8
+END
+
+/* 3. Abre a biblioteca de origem para leitura dos membros */
+ADDRESS ISPEXEC "LMOPEN DATAID("lst_pds") OPTION(INPUT)"
+member = ""
+
+/* 4. Loop para ler cada membro e copiar para o destino */
+DO FOREVER
+   /* Busca o próximo membro da lista */
+   ADDRESS ISPEXEC "LMMLIST DATAID("lst_pds") OPTION(LIST) MEMBER(MEMBER)"
+   
+   /* Se RC = 8, significa que chegou ao fim dos membros */
+   IF RC = 8 THEN LEAVE 
+   IF RC > 8 THEN DO
+      SAY "Erro ao ler a lista de membros. RC="RC
+      LEAVE
+   END
+   
+   /* Copia o membro atual da origem para o destino */
+   ADDRESS ISPEXEC "LMCOPY FROMID("lst_pds") FROMMEM("member") TODATAID("dest_pds") TOMEM("member") REPLACE"
+   
+   IF RC = 0 THEN 
+      SAY "Membro " member " copiado com sucesso."
+   ELSE 
+      SAY "Falha ao copiar membro " member ". RC="RC
+END
+
+/* 5. Fecha e libera os datasets alocados */
+ADDRESS ISPEXEC "LMCLOSE DATAID("lst_pds")"
+ADDRESS ISPEXEC "LMFREE DATAID("lst_pds")"
+ADDRESS ISPEXEC "LMFREE DATAID("dest_pds")"
+
+SAY "Processo concluído!"
+EXIT 0
+
