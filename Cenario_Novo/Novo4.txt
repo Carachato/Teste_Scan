@@ -170,3 +170,43 @@ class CobolProgramExecutor:
             if instr.startswith("IF"): depth += 1
             elif instr.startswith("END-IF"): depth -= 1
 
+xxxx
+
+# Reutilizamos o nosso motor de dados (Contexto)
+from __main__ import CobolInterpreterContext # Garantindo contexto dinâmico no teste
+ctx = CobolInterpreterContext()
+
+# 1. Definindo as variáveis na DATA DIVISION
+ctx.parse_line("01 WS-VARIAVEIS.")
+ctx.parse_line("   03 WS-CONTADOR   PIC 9(02) VALUE 0.")
+ctx.parse_line("   03 WS-SOMA       PIC 9(03) VALUE 0.")
+ctx.parse_line("   03 WS-STATUS     PIC X(10).")
+
+# Inicializa o buffer físico de memória
+ctx.initialize_buffer()
+
+# 2. Escrevendo o código da PROCEDURE DIVISION
+codigo_procedure = [
+    "0000-PRINCIPAL.",
+    "    PERFORM 1000-LOOP UNTIL WS-CONTADOR EQUAL TO 3.",
+    "    IF WS-SOMA GREATER THAN 200",
+    "        MOVE 'ALTO' TO WS-STATUS",
+    "    ELSE",
+    "        MOVE 'BAIXO' TO WS-STATUS",
+    "    END-IF.",
+    "1000-LOOP.",
+    "    ADD 1 TO WS-CONTADOR.",
+    "    ADD 100 TO WS-SOMA."
+]
+
+# 3. Inicializa e roda a Engine de Fluxo
+executor = CobolProgramExecutor(ctx)
+executor.load_procedure_division(codigo_procedure)
+
+print("--- INICIANDO EXECUÇÃO DO PROGRAMA COBOL ---")
+executor.execute(start_paragraph="0000-PRINCIPAL")
+
+print("\n--- RESULTADO FINAL DO BUFFER DA MEMÓRIA ---")
+print("Contador Final (esperado 3):", ctx.fields["WS-CONTADOR"].get())
+print("Soma Final (esperado 300):  ", ctx.fields["WS-SOMA"].get())
+print("Status Final (esperado ALTO):", ctx.fields["WS-STATUS"].get())
