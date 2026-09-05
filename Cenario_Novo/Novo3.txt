@@ -207,3 +207,39 @@ class CobolInterpreterContext:
 
 xxxxxxxx
 
+ctx = CobolInterpreterContext()
+
+# 1. Definindo dados na DATA DIVISION
+estrutura = [
+    "01  WS-CONTADORES.",
+    "    03  WS-LIMITE      PIC 9(01)   USAGE DISPLAY.",
+    "01  WS-TABELA-DINAMICA.",
+    "    03  WS-VALORES     OCCURS 5 TIMES DEPENDING ON WS-LIMITE PIC 9(03)."
+]
+
+for linha in estrutura:
+    ctx.parse_line(linha)
+
+print("--- EXECUTANDO COMANDOS DA PROCEDURE DIVISION ---")
+
+# Simulando comandos reais de um programa COBOL
+ctx.execute_statement("MOVE 2 TO WS-LIMITE")
+print(f"Definindo limite para {ctx.fields['WS-LIMITE'].get()}. Tamanho da tabela em bytes: {ctx.fields['WS-VALORES'].get_length()}")
+
+# Alimentando os índices ativos (1 e 2)
+ctx.fields["WS-VALORES"].set(100, index=1)
+ctx.fields["WS-VALORES"].set(200, index=2)
+
+# Usando aritmética COBOL via nosso executor
+ctx.execute_statement("ADD 50 TO WS-VALORES(1)") # Note: Para simplificar o split, vamos passar direto nos campos ou variáveis
+ctx.fields["WS-VALORES"].set(ctx.fields["WS-VALORES"].get(index=1) + 50, index=1) # Simulação interna
+ctx.execute_statement("ADD 1 TO WS-LIMITE")
+
+print(f"Novo Limite após ADD: {ctx.fields['WS-LIMITE'].get()}. Novo tamanho da tabela em bytes: {ctx.fields['WS-VALORES'].get_length()}")
+
+# Agora o índice 3 passou a existir dinamicamente na estrutura física!
+ctx.fields["WS-VALORES"].set(300, index=3)
+
+print("Valor no Índice 1:", ctx.fields["WS-VALORES"].get(index=1))
+print("Valor no Índice 2:", ctx.fields["WS-VALORES"].get(index=2))
+print("Valor no Índice 3:", ctx.fields["WS-VALORES"].get(index=3))
