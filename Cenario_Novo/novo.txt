@@ -170,5 +170,36 @@ class CobolInterpreterContext:
 
 xxxxx
 
+ctx = CobolInterpreterContext()
+
+# Simulando a leitura sequencial de um código COBOL pelo Parser
+codigo_cobol = [
+    "01  WS-DADOS-CONTA.",
+    "    03  WS-ID-COMP3        PIC S9(5)   USAGE COMP-3.",
+    "    03  WS-MASCARA-TEXTO   PIC X(6).",
+    "    03  WS-MASCARA-NUM     REDEFINES WS-MASCARA-TEXTO PIC 9(4)V92."
+]
+
+print("--- PARSEANDO LINHAS COBOL ---")
+for linha in codigo_cobol:
+    f = ctx.parse_line(linha)
+    if f:
+        print(f"Mapeado: {f.name} (Nível {f.level}) -> Offset Buffer: {f.offset}, Tamanho: {f.length_in_bytes} bytes")
+
+print("\n--- TESTANDO O REDEFINES NA MEMÓRIA ---")
+
+# 1. Alteramos a máscara de texto
+ctx.fields["WS-MASCARA-TEXTO"].set("123456")
+
+# 2. Lendo através do REDEFINES numérico (mesmos bytes, outra interpretação!)
+print("Valor Lido como Texto:   ", ctx.fields["WS-MASCARA-TEXTO"].get()) # Saída: 123456
+print("Valor Lido como Redefines Numérico:", ctx.fields["WS-MASCARA-NUM"].get())   # Saída: 1234.56
+
+print("\n--- TESTANDO ESCRITA CRUZADA ---")
+# 3. Alteramos o Redefines Numérico, tem que impactar o texto original!
+ctx.fields["WS-MASCARA-NUM"].set(9876.54)
+print("Novo valor lido como Texto:", ctx.fields["WS-MASCARA-TEXTO"].get()) # Saída: 987654
+
+
 
 
