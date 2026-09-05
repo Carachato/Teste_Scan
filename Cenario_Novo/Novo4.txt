@@ -1,1 +1,172 @@
+import re
+
+class CobolProgramExecutor:
+    def __init__(self, data_context):
+        self.context = data_context  # O motor de dados que já criamos anteriormente
+        self.instructions = []       # Linhas de código limpas da PROCEDURE
+        self.paragraphs = {}         # Mapeamento de Nome do Parágrafo -> Índice da instrução
+        self.ip = 0                  # Instruction Pointer (Ponteiro de Instrução)
+
+    def load_procedure_division(self, lines):
+        """Carrega e pré-indexa os parágrafos da PROCEDURE DIVISION."""
+        self.instructions = []
+        self.paragraphs = {}
+        
+        for line in lines:
+            line_clean = line.strip()
+            if not line_clean or line_clean.startswith('*'):
+                continue
+            
+            # Identifica um parágrafo (Termina com ponto e não começa com verbo/nível)
+            if re.match(r'^[\w-]+$', line_clean.replace('.', '')) and line_clean.endswith('.'):
+                p_name = line_clean.replace('.', '').upper()
+                self.paragraphs[p_name] = len(self.instructions)
+            else:
+                self.instructions.append(line_clean)
+
+    def eval_condition(self, condition_str):
+        """Avalia condições sintáticas do COBOL (EQUAL TO, GREATER THAN, etc)."""
+        # Simplificação de sintaxe para equivalentes Python
+        cond = condition_str.upper()
+        cond = cond.replace("EQUAL TO", "==").replace("=", "==")
+        cond = cond.replace("GREATER THAN", ">")
+        cond = cond.replace("LESS THAN", "<")
+        
+        # Extrai os tokens para resolver variáveis
+        tokens = re.split(r'(\s|==|>|<)', cond)
+        tokens = [t.strip() for t in tokens if t.strip()]
+        
+        # Resolve o valor de cada token (se for variável, pega o valor do contexto)
+        resolved_tokens = []
+        for token in tokens:
+            if token in ("==", ">", "<"):
+                resolved_tokens.append(token)
+            else:
+                val = self.context._resolve_value(token)
+                resolved_tokens.append(repr(val) if isinstance(val, str) else str(val))
+                
+        try:
+            return eval(" ".join(resolved_tokens))
+        except Exception:
+            return False
+
+    def execute(self, start_paragraph=None):
+        """Inicia a execução do código a partir de um parágrafo ou do topo."""
+        if start_paragraph:
+            self.ip = self.paragraphs.get(start_paragraph.upper(), 0)
+        else:
+            self.ip = 0
+            
+        while self.ip < len(self.instructions):
+            instr = self.instructions[self.ip]
+            parts = instr.replace('.', '').split()
+            if not parts:
+                self.ip += 1
+                continue
+                
+            verb = parts[0].upper()
+            
+            # --- COMANDO IF / ELSE / END-IF ---
+            if verb == "IF":
+                # Captura a condição até o final da linha ou mapeamento interno
+                condition_part = instr[3:].strip()
+                if self.eval_condition(condition_part):
+                    self.ip += 1 # Vai para a próxima instrução (dentro do IF)
+                else:
+                    # Salta para o ELSE ou para o END-IF
+                    self._jump_to_block_end()
+                    
+            elif verb == "ELSE":
+                # Se caímos aqui executando o bloco do IF, devemos saltar o ELSE até o END-IF
+                self._jump_to_end_if()
+                
+            elif verb == "END-IF":
+                self.ip += 1
+                
+            # --- COMANDO PERFORM ---
+            elif verb == "PERFORM":
+                target_p = parts[1].upper()
+                
+                # PERFORM PARAGRAFO UNTIL CONDICAO
+                if "UNTIL" in instr.upper():
+                    until_index = instr.upper().find("UNTIL")
+                    condition_part = instr[until_index + 5:].strip()
+                    
+                    while not self.eval_condition(condition_part):
+                        # Executa o parágrafo via recursão controlada/salvamento de IP
+                        old_ip = self.ip
+                        self.execute_subroutine(target_p)
+                        self.ip = old_ip
+                else:
+                    # PERFORM simples
+                    old_ip = self.ip
+                    self.execute_subroutine(target_p)
+                    self.ip = old_ip
+                    
+                self.ip += 1
+                
+            # --- COMANDOS BÁSICOS (MOVE, ADD, SUBTRACT) ---
+            elif verb in ("MOVE", "ADD", "SUBTRACT"):
+                self.context.execute_statement(instr)
+                self.ip += 1
+            else:
+                self.ip += 1
+
+    def execute_subroutine(self, paragraph_name):
+        """Executa um parágrafo isolado e retorna."""
+        start_idx = self.paragraphs.get(paragraph_name)
+        if start_idx is None:
+            return
+        
+        # Salva o IP atual, muda para o destino e roda até achar o próximo parágrafo ou fim
+        saved_ip = self.ip
+        self.ip = start_idx
+        
+        while self.ip < len(self.instructions):
+            # Valida se a próxima linha pertence a outro parágrafo na listagem global
+            # (Na nossa engine simples, executamos a instrução atual e paramos se a próxima instrução
+            # for o início de um novo parágrafo mapeado se viemos de um PERFORM)
+            instr = self.instructions[self.ip]
+            
+            # Executa a linha individualmente usando o interpretador padrão
+            parts = instr.split()
+            if parts and parts[0].upper() in ("IF", "ELSE", "END-IF", "PERFORM", "MOVE", "ADD", "SUBTRACT"):
+                # Delegamos para o fluxo principal temporariamente
+                current_ip = self.ip
+                self.execute_single_step(instr)
+                if self.ip == current_ip:
+                    self.ip += 1
+            else:
+                self.ip += 1
+                
+            # Se o IP alcançou o início do próximo parágrafo conhecido, encerra a sub-rotina
+            if self.ip in self.paragraphs.values():
+                break
+
+    def execute_single_step(self, instr):
+        """Executa apenas uma instrução de atribuição/aritmética."""
+        parts = instr.replace('.', '').split()
+        verb = parts[0].upper()
+        if verb in ("MOVE", "ADD", "SUBTRACT"):
+            self.context.execute_statement(instr)
+
+    def _jump_to_block_end(self):
+        """Salta para o ELSE correspondente ou para o END-IF se não houver ELSE."""
+        depth = 1
+        while self.ip < len(self.instructions) and depth > 0:
+            self.ip += 1
+            instr = self.instructions[self.ip].upper()
+            if instr.startswith("IF"): depth += 1
+            elif instr.startswith("END-IF"): depth -= 1
+            elif instr.startswith("ELSE") and depth == 1:
+                return # Achou o ELSE do nível atual, para nele para ser executado
+                
+    def _jump_to_end_if(self):
+        """Salta o bloco ELSE direto para o END-IF."""
+        depth = 1
+        while self.ip < len(self.instructions) and depth > 0:
+            self.ip += 1
+            instr = self.instructions[self.ip].upper()
+            if instr.startswith("IF"): depth += 1
+            elif instr.startswith("END-IF"): depth -= 1
 
