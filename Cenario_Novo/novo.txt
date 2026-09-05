@@ -1,1 +1,174 @@
+import re
+import struct
+
+class CobolField:
+    def __init__(self, name, level, picture=None, usage="DISPLAY", redefines=None):
+        self.name = name.strip().upper()
+        self.level = int(level)
+        self.picture = picture.strip().upper() if picture else None
+        self.usage = usage.strip().upper()
+        self.redefines = redefines.strip().upper() if redefines else None
+        self.is_group = picture is None
+        self.children = []
+        
+        # Ponteiros de memória gerenciados pelo Buffer global
+        self.buffer = None
+        self.offset = 0
+        
+        # Propriedades calculadas do PIC
+        self.length_in_bytes = 0
+        self.is_numeric = False
+        self.is_signed = False
+        self.decimals = 0
+        
+        if self.picture:
+            self._parse_picture()
+
+    def _parse_picture(self):
+        pic = self.picture
+        # Expandir multiplicadores ex: 9(3)V9(2) -> 999V99
+        matches = re.findall(r'([X9])\((\d+)\)', pic)
+        for char, num in matches:
+            pic = pic.replace(f"{char}({num})", char * int(num))
+        
+        self.is_signed = pic.startswith('S')
+        pic_clean = pic.replace('S', '').replace('V', '')
+        total_digits = len(pic_clean)
+        self.is_numeric = "9" in pic or "S9" in pic
+        
+        if 'V' in pic:
+            dec_part = pic.split('V')[1]
+            self.decimals = len(dec_part)
+
+        # Calcular bytes por USAGE
+        if not self.is_numeric or self.usage == "DISPLAY":
+            self.length_in_bytes = total_digits
+        elif self.usage in ("COMP", "COMP-5"):
+            if total_digits <= 4: self.length_in_bytes = 2
+            elif total_digits <= 9: self.length_in_bytes = 4
+            else: self.length_in_bytes = 8
+        elif self.usage == "COMP-3":
+            self.length_in_bytes = (total_digits + 1) // 2
+
+    def get_length(self):
+        if self.redefines:
+            return 0 # Redefines compartilha espaço, não adiciona tamanho ao pai
+        if not self.is_group:
+            return self.length_in_bytes
+        return sum(child.get_length() for child in self.children)
+
+    def _get_bytes(self):
+        """Busca o pedaço de bytes correspondente a este campo no buffer global."""
+        return self.buffer.read(self.offset, self.length_in_bytes)
+
+    def _set_bytes(self, byte_data):
+        """Escreve os bytes deste campo diretamente no buffer global."""
+        self.buffer.write(self.offset, byte_data)
+
+    def set(self, value):
+        if self.is_group: raise ValueError("Não é possível atribuir valor direto a um grupo.")
+        
+        if not self.is_numeric:
+            val_str = str(value or "")
+            b_data = val_str.ljust(self.length_in_bytes)[:self.length_in_bytes].encode('ascii')
+            self._set_bytes(b_data)
+            return
+
+        val_float = float(value or 0)
+        total_digits = len(self.picture.replace('S','').replace('V','').replace('(','').replace(')','')) if self.picture else 0
+        fmt = f"{{:.{self.decimals}f}}"
+        val_str = fmt.format(abs(val_float)).replace('.', '').zfill(total_digits if total_digits > 0 else self.length_in_bytes)
+
+        if self.usage == "DISPLAY":
+            if val_float < 0 and self.is_signed:
+                val_str = "-" + val_str[1:]
+            self._set_bytes(val_str.encode('ascii'))
+        elif self.usage in ("COMP", "COMP-5"):
+            val_int = int(val_float * (10 ** self.decimals))
+            fmt_type = {2: '>h', 4: '>i', 8: '>q'}[self.length_in_bytes]
+            self._set_bytes(struct.pack(fmt_type, val_int))
+        elif self.usage == "COMP-3":
+            val_int = int(val_float * (10 ** self.decimals))
+            sign = "D" if val_float < 0 else "C"
+            digits = str(abs(val_int))
+            if len(digits) % 2 == 0: digits = "0" + digits
+            self._set_bytes(bytes.fromhex(digits + sign))
+
+    def get(self):
+        if self.is_group:
+            return self.buffer.read(self.offset, sum(c.get_length() for c in self.children))
+        
+        b_data = self._get_bytes()
+        if not self.is_numeric:
+            return b_data.decode('ascii', errors='ignore').strip()
+
+        if self.usage == "DISPLAY":
+            raw_str = b_data.decode('ascii', errors='ignore')
+            is_neg = raw_str.startswith('-')
+            clean_str = raw_str.replace('-', '')
+            val = float(f"{clean_str[:-self.decimals]}.{clean_str[-self.decimals:]}") if self.decimals > 0 else int(clean_str)
+            return -val if is_neg else val
+        elif self.usage in ("COMP", "COMP-5"):
+            fmt_type = {2: '>h', 4: '>i', 8: '>q'}[self.length_in_bytes]
+            val_int = struct.unpack(fmt_type, b_data)[0]
+            return val_int / (10 ** self.decimals) if self.decimals > 0 else val_int
+        elif self.usage == "COMP-3":
+            hex_str = b_data.hex().upper()
+            val = int(hex_str[:-1])
+            if hex_str[-1] == "D": val = -val
+            return val / (10 ** self.decimals) if self.decimals > 0 else val
+
+
+class CobolMemoryBuffer:
+    """O coração da memória compartilhada."""
+    def __init__(self, size=1024):
+        self.storage = bytearray(size)
+
+    def write(self, offset, byte_data):
+        self.storage[offset:offset+len(byte_data)] = byte_data
+
+    def read(self, offset, length):
+        return bytes(self.storage[offset:offset+length])
+
+
+class CobolInterpreterContext:
+    def __init__(self):
+        self.fields = {}
+        self.buffer = CobolMemoryBuffer()
+        self.current_offset = 0
+
+    def parse_line(self, cobol_line):
+        """Módulo Parser: Lê uma linha texto COBOL e mapeia a memória."""
+        line = cobol_line.strip().replace('.', '')
+        if not line or line.startswith('*'): return None
+        
+        # Regex para capturar Nível, Nome, Redefines, PIC e Usage
+        pattern = r'^(\d{2})\s+([\w-]+)(?:\s+REDEFINES\s+([\w-]+))?(?:\s+PIC\s+([X9SV()]+))?(?:\s+USAGE\s+IS\s+)?(?:\s+(COMP-3|COMP|DISPLAY))?'
+        match = re.match(pattern, line, re.IGNORECASE)
+        if not match: return None
+        
+        lvl, name, redefines, pic, usage = match.groups()
+        usage = usage or "DISPLAY"
+        
+        field = CobolField(name, lvl, picture=pic, usage=usage, redefines=redefines)
+        field.buffer = self.buffer
+        
+        if redefines:
+            # Se redefine, herda exatamente o offset do campo alvo
+            target_field = self.fields.get(redefines.upper())
+            if target_field:
+                field.offset = target_field.offset
+        else:
+            # Caso contrário, avança sequencialmente na memória física
+            field.offset = self.current_offset
+            if not field.is_group:
+                self.current_offset += field.length_in_bytes
+                
+        self.fields[field.name] = field
+        return field
+
+
+xxxxx
+
+
 
