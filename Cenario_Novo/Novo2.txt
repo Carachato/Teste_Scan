@@ -180,4 +180,34 @@ class CobolMemoryBuffer:
     def read(self, offset, length):
         return bytes(self.storage[offset:offset+length])
 
+xxxxxx
+ctx = CobolInterpreterContext()
+
+# Simulando o Parser lendo a estrutura OCCURS
+estrutura = [
+    "01  WS-TABELA-VENDAS.",
+    "    03  WS-MES-VALOR   OCCURS 3 TIMES PIC 9(04)V92."
+]
+
+for linha in estrutura:
+    ctx.parse_line(linha)
+
+# Inicializa o buffer com o tamanho correto calculado dinamicamente
+ctx.initialize_buffer()
+
+# 1. Alimentando os índices individualmente (Lembre-se: COBOL começa em 1!)
+ctx.fields["WS-MES-VALOR"].set(1500.50, index=1) # Mês 1
+ctx.fields["WS-MES-VALOR"].set(2750.00, index=2) # Mês 2
+ctx.fields["WS-MES-VALOR"].set(980.75, index=3)  # Mês 3
+
+print("--- LENDO OS DADOS DO OCCURS ---")
+print("Valor Mês 1:", ctx.fields["WS-MES-VALOR"].get(index=1)) # Saída: 1500.5
+print("Valor Mês 2:", ctx.fields["WS-MES-VALOR"].get(index=2)) # Saída: 2750.0
+print("Valor Mês 3:", ctx.fields["WS-MES-VALOR"].get(index=3)) # Saída: 980.75
+
+print("\n--- VISÃO COMPLETA DO BUFFER DE MEMÓRIA BRUTA ---")
+# Como são 3 ocorrências de PIC 9(4)V92 (6 bytes cada), o total do buffer deve dar 18 bytes continuos
+print(ctx.buffer.read(0, 18))
+# Saída: b'150050275000098075'
+
 
