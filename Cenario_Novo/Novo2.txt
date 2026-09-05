@@ -1,1 +1,183 @@
+import re
+import struct
+
+class CobolField:
+    def __init__(self, name, level, picture=None, usage="DISPLAY", redefines=None, occurs_times=1):
+        self.name = name.strip().upper()
+        self.level = int(level)
+        self.picture = picture.strip().upper() if picture else None
+        self.usage = usage.strip().upper()
+        self.redefines = redefines.strip().upper() if redefines else None
+        self.occurs_times = int(occurs_times) # Quantidade de repetições
+        self.children = []
+        
+        self.buffer = None
+        self.offset = 0
+        
+        self.length_in_bytes = 0 # Tamanho de UMA ocorrência
+        self.is_numeric = False
+        self.is_signed = False
+        self.decimals = 0
+        
+        if self.picture:
+            self._parse_picture()
+
+    def _parse_picture(self):
+        pic = self.picture
+        matches = re.findall(r'([X9])\((\d+)\)', pic)
+        for char, num in matches:
+            pic = pic.replace(f"{char}({num})", char * int(num))
+        
+        self.is_signed = pic.startswith('S')
+        pic_clean = pic.replace('S', '').replace('V', '')
+        total_digits = len(pic_clean)
+        self.is_numeric = "9" in pic or "S9" in pic
+        
+        if 'V' in pic:
+            dec_part = pic.split('V')[1]
+            self.decimals = len(dec_part)
+
+        if not self.is_numeric or self.usage == "DISPLAY":
+            self.length_in_bytes = total_digits
+        elif self.usage in ("COMP", "COMP-5"):
+            if total_digits <= 4: self.length_in_bytes = 2
+            elif total_digits <= 9: self.length_in_bytes = 4
+            else: self.length_in_bytes = 8
+        elif self.usage == "COMP-3":
+            self.length_in_bytes = (total_digits + 1) // 2
+
+    def get_length(self):
+        """Retorna o tamanho total ocupado pelo campo multiplicando pelas ocorrências."""
+        if self.redefines:
+            return 0
+        if self.picture:
+            base_len = self.length_in_bytes
+        else:
+            base_len = sum(child.get_length() for child in self.children)
+        return base_len * self.occurs_times
+
+    def _get_occurrence_offset(self, index=1):
+        """Calcula o offset físico exato com base no índice COBOL (1-based)."""
+        if index < 1 or index > self.occurs_times:
+            raise IndexError(f"Índice {index} fora dos limites do OCCURS ({self.occurs_times}) para {self.name}")
+        
+        # Se for uma variável elementar, o tamanho de um bloco é length_in_bytes
+        if self.picture:
+            block_size = self.length_in_bytes
+        else:
+            # Se for grupo, o tamanho de um bloco é a soma do tamanho dos filhos dividida pelo próprio ocorre se aplicável
+            # Mas de forma geral, para os filhos calcularem a partir do pai, calculamos o tamanho de um bloco completo:
+            block_size = sum(child.get_length() for child in self.children)
+            
+        return self.offset + ((index - 1) * block_size)
+
+    def set(self, value, index=1):
+        if self.picture is None: raise ValueError("Não é possível atribuir valor direto a um grupo.")
+        
+        target_offset = self._get_occurrence_offset(index)
+        
+        if not self.is_numeric:
+            val_str = str(value or "")
+            b_data = val_str.ljust(self.length_in_bytes)[:self.length_in_bytes].encode('ascii')
+            self.buffer.write(target_offset, b_data)
+            return
+
+        val_float = float(value or 0)
+        total_digits = len(self.picture.replace('S','').replace('V','').replace('(','').replace(')','')) if self.picture else 0
+        fmt = f"{{:.{self.decimals}f}}"
+        val_str = fmt.format(abs(val_float)).replace('.', '').zfill(total_digits if total_digits > 0 else self.length_in_bytes)
+
+        if self.usage == "DISPLAY":
+            if val_float < 0 and self.is_signed:
+                val_str = "-" + val_str[1:]
+            self.buffer.write(target_offset, val_str.encode('ascii'))
+        elif self.usage in ("COMP", "COMP-5"):
+            val_int = int(val_float * (10 ** self.decimals))
+            fmt_type = {2: '>h', 4: '>i', 8: '>q'}[self.length_in_bytes]
+            self.buffer.write(target_offset, struct.pack(fmt_type, val_int))
+        elif self.usage == "COMP-3":
+            val_int = int(val_float * (10 ** self.decimals))
+            sign = "D" if val_float < 0 else "C"
+            digits = str(abs(val_int))
+            if len(digits) % 2 == 0: digits = "0" + digits
+            self.buffer.write(target_offset, bytes.fromhex(digits + sign))
+
+    def get(self, index=1):
+        if self.picture is None:
+            # Retorna os bytes puros da ocorrência do grupo
+            block_size = sum(child.get_length() for child in self.children)
+            return self.buffer.read(self._get_occurrence_offset(index), block_size)
+        
+        target_offset = self._get_occurrence_offset(index)
+        b_data = self.buffer.read(target_offset, self.length_in_bytes)
+        
+        if not self.is_numeric:
+            return b_data.decode('ascii', errors='ignore').strip()
+
+        if self.usage == "DISPLAY":
+            raw_str = b_data.decode('ascii', errors='ignore')
+            is_neg = raw_str.startswith('-')
+            clean_str = raw_str.replace('-', '')
+            val = float(f"{clean_str[:-self.decimals]}.{clean_str[-self.decimals:]}") if self.decimals > 0 else int(clean_str)
+            return -val if is_neg else val
+        elif self.usage in ("COMP", "COMP-5"):
+            fmt_type = {2: '>h', 4: '>i', 8: '>q'}[self.length_in_bytes]
+            val_int = struct.unpack(fmt_type, b_data)[0]
+            return val_int / (10 ** self.decimals) if self.decimals > 0 else val_int
+        elif self.usage == "COMP-3":
+            hex_str = b_data.hex().upper()
+            val = int(hex_str[:-1])
+            if hex_str[-1] == "D": val = -val
+            return val / (10 ** self.decimals) if self.decimals > 0 else val
+
+
+class CobolInterpreterContext:
+    def __init__(self):
+        self.fields = {}
+        self.buffer = None # Será inicializado após calcular o tamanho total
+        self.current_offset = 0
+        self.raw_lines = []
+
+    def parse_line(self, cobol_line):
+        line = cobol_line.strip().replace('.', '')
+        if not line or line.startswith('*'): return None
+        
+        # Regex atualizada para pegar a cláusula OCCURS X TIMES
+        pattern = r'^(\d{2})\s+([\w-]+)(?:\s+REDEFINES\s+([\w-]+))?(?:\s+OCCURS\s+(\d+)\s+TIMES)?(?:\s+PIC\s+([X9SV()]+))?(?:\s+USAGE\s+IS\s+)?(?:\s+(COMP-3|COMP|DISPLAY))?'
+        match = re.match(pattern, line, re.IGNORECASE)
+        if not match: return None
+        
+        lvl, name, redefines, occurs, pic, usage = match.groups()
+        usage = usage or "DISPLAY"
+        occurs = occurs or 1
+        
+        field = CobolField(name, lvl, picture=pic, usage=usage, redefines=redefines, occurs_times=occurs)
+        
+        if redefines:
+            target_field = self.fields.get(redefines.upper())
+            if target_field:
+                field.offset = target_field.offset
+        else:
+            field.offset = self.current_offset
+            # Avança o offset baseado no tamanho TOTAL (incluindo ocorrências)
+            if not field.picture is None or pic:
+                self.current_offset += field.get_length()
+                
+        self.fields[field.name] = field
+        return field
+        
+    def initialize_buffer(self):
+        from . import CobolMemoryBuffer # ou classe interna
+        self.buffer = CobolMemoryBuffer(self.current_offset)
+        for field in self.fields.values():
+            field.buffer = self.buffer
+
+class CobolMemoryBuffer:
+    def __init__(self, size=2048):
+        self.storage = bytearray(size)
+    def write(self, offset, byte_data):
+        self.storage[offset:offset+len(byte_data)] = byte_data
+    def read(self, offset, length):
+        return bytes(self.storage[offset:offset+length])
+
 
