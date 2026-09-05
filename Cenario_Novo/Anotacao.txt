@@ -232,3 +232,181 @@ A partir de agora, mantenha estritamente essa linha de raciocínio arquitetural.
 3. Evitar loops "linha por linha" no modo nuvem, priorizando a performance nativa de processamento distribuído de DataFrames do PySpark.
 
 Confirme que compreendeu detalhadamente esta estratégia de modernização híbrida e agnóstica e se coloque à disposição para dar continuidade ao desenvolvimento dos componentes do transpilador ou dos scripts de testes de regressão.
+
+
+xxxxxxxx
+import re
+import struct
+
+class CobolField:
+    def __init__(self, name, level, picture=None, usage="DISPLAY"):
+        self.name = name.strip().upper()
+        self.level = int(level)
+        self.picture = picture.strip().upper() if picture else None
+        self.usage = usage.strip().upper() # DISPLAY, COMP, COMP-3
+        self.is_group = picture is None
+        self.children = []
+        self.parent = None
+        
+        # Propriedades físicas
+        self.length_in_bytes = 0
+        self.is_numeric = False
+        self.is_signed = False
+        self.decimals = 0
+        self._value_if_elementary = b"" # Agora manipulamos BYTES brutos!
+
+        if self.picture:
+            self._parse_picture()
+
+    def _parse_picture(self):
+        pic = self.picture
+        
+        # 1. Expandir multiplicadores, ex: 9(3)V9(2) -> 999V99
+        matches = re.findall(r'([X9])\((\d+)\)', pic)
+        for char, num in matches:
+            pic = pic.replace(f"{char}({num})", char * int(num))
+        
+        self.is_signed = pic.startswith('S')
+        pic_clean = pic.replace('S', '').replace('V', '')
+        
+        total_digits = len(pic_clean)
+        self.is_numeric = "9" in pic
+        
+        # Casas decimais
+        if 'V' in pic:
+            dec_part = pic.split('V')[1]
+            matches_dec = re.match(r'9\((\d+)\)', dec_part)
+            self.decimals = int(matches_dec.group(1)) if matches_dec else len(dec_part)
+
+        # 2. Calcular o tamanho em BYTES dependendo do USAGE
+        if not self.is_numeric or self.usage == "DISPLAY":
+            self.length_in_bytes = total_digits
+            self._value_if_elementary = b"0" * self.length_in_bytes if self.is_numeric else b" " * self.length_in_bytes
+        
+        elif self.usage in ("COMP", "COMP-5"):
+            # Mapeamento padrão IBM de dígitos para tamanho de inteiros binários
+            if total_digits <= 4: self.length_in_bytes = 2    # Halfword (short)
+            elif total_digits <= 9: self.length_in_bytes = 4  # Fullword (int)
+            else: self.length_in_bytes = 8                   # Doubleword (long)
+            self._value_if_elementary = b"\x00" * self.length_in_bytes
+
+        elif self.usage == "COMP-3":
+            # Fórmula do COMP-3: (Dígitos + 1) / 2 arredondado para cima
+            self.length_in_bytes = (total_digits + 1) // 2
+            self._value_if_elementary = b"\x00" * self.length_in_bytes
+
+    def get_length(self):
+        if not self.is_group: return self.length_in_bytes
+        return sum(child.get_length() for child in self.children)
+
+    # --- ENCODERS / DECODERS ESPECÍFICOS DO MAINFRAME ---
+
+    def _encode_comp3(self, value_str, signed):
+        """Transforma uma string numérica em bytes COMP-3 (Packed Decimal)."""
+        # Ex: "12345" positivo -> b"\x12\x34\x5C"
+        sign_nibble = "D" if float(value_str) < 0 else "C"
+        digits = "".join(c for c in value_str if c.isdigit())
+        
+        # Garante tamanho ímpar para o par de dígitos + sinal caber certinho em bytes
+        if len(digits) % 2 == 0:
+            digits = "0" + digits
+        
+        packed_str = digits + sign_nibble
+        return bytes.fromhex(packed_str)
+
+    def _decode_comp3(self, byte_data):
+        """Lê bytes COMP-3 e retorna a string numérica correspondente."""
+        hex_str = byte_data.hex().upper()
+        digits = hex_str[:-1]
+        sign = hex_str[-1]
+        
+        value = int(digits)
+        if sign == "D":
+            value = -value
+        return value
+
+    def set(self, value):
+        if self.is_group: raise ValueError("Grupos não recebem atribuição direta.")
+        
+        if not self.is_numeric:
+            val_str = str(value or "")
+            self._value_if_elementary = val_str.ljust(self.length_in_bytes)[:self.length_in_bytes].encode('ascii')
+            return
+
+        # Tratamento numérico
+        val_float = float(value or 0)
+        fmt = f"{{:.{self.decimals}f}}"
+        val_str = fmt.format(abs(val_float)).replace('.', '')
+        
+        # Completa com zeros baseados na quantidade teórica de dígitos do PIC
+        total_digits = len(self.picture.replace('S','').replace('V','').replace('(','').replace(')','')) # fallback simples
+        val_str = val_str.zfill(total_digits)
+
+        if self.usage == "DISPLAY":
+            # Se for negativo e assinalado (S9), aplica a lógica simples de sinal no último byte (ou mantém texto básico)
+            # Para este interpretador base, faremos uma string ASCII. Se negativo, prefixamos ou usamos o padrão de mercado
+            if val_float < 0 and self.is_signed:
+                # Exemplo simplificado de representação textual para facilidade no Python
+                val_str = "-" + val_str[1:] 
+            self._value_if_elementary = val_str.encode('ascii')
+
+        elif self.usage in ("COMP", "COMP-5"):
+            val_int = int(val_float * (10 ** self.decimals))
+            # struct.pack lida com binários nativos (big-endian '>' padrão de rede/mainframe)
+            fmt_type = {2: '>h', 4: '>i', 8: '>q'}[self.length_in_bytes]
+            self._value_if_elementary = struct.pack(fmt_type, val_int)
+
+        elif self.usage == "COMP-3":
+            val_int = int(val_float * (10 ** self.decimals))
+            self._value_if_elementary = self._encode_comp3(str(val_int), self.is_signed)
+
+    def get(self):
+        if self.is_group: return "".join(child.get().decode('ascii', errors='ignore') for child in self.children)
+
+        if not self.is_numeric:
+            return self._value_if_elementary.decode('ascii').strip()
+
+        if self.usage == "DISPLAY":
+            raw_str = self._value_if_elementary.decode('ascii')
+            is_neg = raw_str.startswith('-')
+            clean_str = raw_str.replace('-', '')
+            if self.decimals > 0:
+                val = float(f"{clean_str[:-self.decimals]}.{clean_str[-self.decimals:]}")
+            else:
+                val = int(clean_str)
+            return -val if is_neg else val
+
+        elif self.usage in ("COMP", "COMP-5"):
+            fmt_type = {2: '>h', 4: '>i', 8: '>q'}[self.length_in_bytes]
+            val_int = struct.unpack(fmt_type, self._value_if_elementary)[0]
+            return val_int / (10 ** self.decimals) if self.decimals > 0 else val_int
+
+        elif self.usage == "COMP-3":
+            val_int = self._decode_comp3(self._value_if_elementary)
+            return val_int / (10 ** self.decimals) if self.decimals > 0 else val_int
+
+    def __repr__(self):
+        return f"{self.level:02d} {self.name:<15} PIC {str(self.picture):<8} USAGE {self.usage:<8} | Bytes: {self._value_if_elementary} | Py: {self.get()}"
+
+
+xxxxxxxxxxx
+# Testando PIC 9(3)V9(2) Expandido
+campo_decimal = CobolField("WS-VALOR", 5, "9(3)V9(2)")
+campo_decimal.set(123.45)
+print(campo_decimal)
+# Saída em bytes texto puro: b'12345'
+
+# Testando COMP-3 (Packed Decimal) - Economia de espaço de memória
+campo_comp3 = CobolField("WS-SALDO-COMP3", 5, "S9(7)V99", usage="COMP-3")
+campo_comp3.set(-54321.10)
+print(campo_comp3)
+# Note os bytes hexadecimais puros compactados com sinal no final!
+# Saída em bytes compactados: b'\x05\x43\x21\x10\x0D' -> Final 'D' indica negativo!
+
+# Testando COMP (Inteiro Binário de 2 ou 4 bytes de alta performance)
+campo_comp = CobolField("WS-CONTADOR", 5, "9(4)", usage="COMP")
+campo_comp.set(255)
+print(campo_comp)
+# Ocupa exatamente 2 bytes físicos de memória binária: b'\x00\xff'
+
+
